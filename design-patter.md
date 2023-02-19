@@ -39,6 +39,7 @@ end
 ## まとめ
 - アルゴリズムに多様性を持たせたいときに有用
 # Strategy: アルゴリズムを交換する
+## 概要
 - Template Methodのようにバリエーションごとにサブクラスを作るのではなく、変化自体をコードに閉じ込めて分離する
 ## コード例
 ```ruby
@@ -224,3 +225,133 @@ end
 - 個々のコンポーネントからなる複雑なオブジェクトが、子の性質と特徴を共有しているときに使える
   - GUIライブラリなど
 - IteratorパターンはCompositeパターンを特化したもの
+# Iterator: コレクションを操作する
+## 概要
+- 集約オブジェクトが元にある内部表現を公開せずに、その要素に順にアクセスする方法を提供する
+- 外部イテレータ
+  - イテレータオブジェクトを提供する
+  - 外部イテレータでn番目の要素を取り出して、それに対して何か処理する
+- 内部イテレータ
+  - 集約オブジェクトの内部で繰り返し処理が起こる
+  - コードブロックベースのイテレータ
+## コード例
+```ruby
+class ArrayIterator # 外部イテレータ
+  def initialize(array)
+    @array = array
+    @index = 0
+  end
+
+  def has_next?
+    @index < array.length
+  end
+
+  def item
+    @array[@index]
+  end
+
+  def next_item
+    value = @array[@index]
+    @index += 1
+    value
+  end
+end
+
+array = ['red', 'green', 'blue']
+i = ArrayIterator.new(array)
+while i.has_next?
+  puts("item: #{i.next_item}")
+end
+
+# IOオブジェクトも外部イテレータの一つ
+f = File.open('names.txt')
+while not f.eof?
+  puts f.readline
+end
+```
+## 注意点
+- リストを走査している間にリスト事態に変更が行われた場合の動き
+  - マルチスレッドでは特に注意
+  - コピーを作ることで回避は可能
+## まとめ
+- 外部イテレータ
+  - コレクションのメンバーを指し示すオブジェクト
+- 内部イテレータ
+  - 何らかのポインタを渡す代わりに、子オブジェクトを扱うためのコードを渡す
+- Rubyのイテレータは優秀
+# Command: 命令を実行する
+## 概要
+- 動作用のコードをオブジェクトに抜き出す
+- 「動作の定義」と「動作の実行」を分離する
+  - 「これを行え」の代わりに、「これを行う方法を記録しろ」「記録したことを行え」
+- execute(とunexecute)のみをもったクラス
+## コード例
+```ruby
+class Comand
+  attr_reader :description
+
+  def initialize(description)
+    @description = description
+  end
+
+  def execute
+  end
+end
+
+class CompositeCommand < Command # Compositeパターン
+  def initialize
+    @commands = []
+  end
+
+  def <<(cmd)
+    @commands << cmd
+  end
+
+  def execute
+    @commands.each { |cmd| cmd.execute }
+  end
+
+  def unexecute
+    @commands.reverse.each { |cmd| cmd.unexecute }
+  end
+
+  def description
+    description = ''
+    @commands.each { |cmd| description += cmd.description + "\n" }
+    description
+  end
+end
+
+class DeleteFile < Command
+  def initialize(path)
+    super "Delete file: #{path}"
+    @path = path
+  end
+
+  def execute
+    if File.exists?(@path)
+      @contents = File.read(@path) # 可逆性を持たせるためにコピーを取っておく
+    end
+    f = File.delete(@path)
+  end
+
+  def unexecute
+    if @contents
+      f = File.open(@path, "w")
+      f.write(@contents)
+      f.close
+    end
+  end
+end
+```
+## 注意点
+- 本当にこのパターンを使う必要があるのかを検討
+- 何を行うかの決定と実行時の間に環境や前提条件が変化した場合を考慮する必要あり
+## まとめ
+- ActiveRecordのマイグレーションがいい例
+- これから行うことのリストや、完了したことのリストを記録する必要のあるときに適する
+- 行ったコマンドを元に戻すこともできる
+- クラスで実装すると複雑だが、rubyだとブロックで実装する手もある
+- CommandとObserverの違い
+  - Command: 何かを行う方法を知っているだけで、実行する対象の状態には関心がない
+  - Observer: 呼び出される対象の状態に関心がある
