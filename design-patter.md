@@ -355,3 +355,164 @@ end
 - CommandとObserverの違い
   - Command: 何かを行う方法を知っているだけで、実行する対象の状態には関心がない
   - Observer: 呼び出される対象の状態に関心がある
+# Adapter: ギャップを埋める
+## 概要
+- インターフェイス間の不整合のギャップを埋める
+## コード例
+```ruby
+class Encrypter
+  def initialize(key)
+    @key = key
+  end
+
+  def encrypt(reader, writer)
+    key_index = 0
+    while not reader.eof?
+      plain_char = reader.getc # readerにはIOオブジェクト(getcのインターフェイス)を期待している
+      encrypted_char = plain_char ^ @key[key_index] # XOR演算で暗号化
+      writer.putc(encrypted_char)
+      key_index = [key_index + 1] % @key.size
+    end
+  end
+end
+
+class StringIOAdapter
+  def initialize(string)
+    @string = string
+    @position = 0
+  end
+
+  def getc
+    if @position >= @string.length
+     raise EOFError
+    end
+
+    cd = @string[@position]
+    @position += 1
+    ch
+  end
+
+  def eof?
+    @position >+ @string.length
+  end
+end
+
+Encrypter = Encrypter.new('XYZZY')
+reader = StringIOAdapter.new('We attack at dawn') # Clientが期待するインターフェイスを備えたAdapter
+writer = File.open('out.txt', 'w')
+encrypter.encrypt(reader, writer) # Client(encrypter)は対象のオブジェクトがアダプタであるとは知らない
+```
+## 注意点
+- Rubyではオープンクラスなどでアダプタなしに直接インターフェイスを変更することが可能
+  - 変更内容がシンプルで明快ならあり
+  - インターフェイスの不整合が広範囲で複雑な場合はAdapterで解決する方が良い
+- 必要だと思わなかったメソッド(上記で言うと`getc`と`eof?`以外)が呼ばれると動かない
+## まとめ
+- 必要なインターフェイスと既存のオブジェクトとの間の違いを吸収するためにある
+  - 外部には必要なインターフェイスを提供し、内部に隠されたオブジェクトを持つ
+- ProxyやDecoratorパターンが仲間
+# Proxy: オブジェクトに代理を立てる
+## 概要
+- 以下のような課題を解決する
+  - オブジェクトへのアクセス制限
+  - 場所に依存しないオブジェクトの取得
+  - オブジェクト生成の遅延
+## コード例
+### 基本のProxy
+```ruby
+class BankAccount
+  attr_reader :balance
+
+  def initialize(starting_balance = 0)
+    @balance = starting_balance
+  end
+
+  def deposit(amount)
+    @balance += amount
+  end
+
+  def withdraw(amount)
+    @balance -= amount
+  end
+end
+
+class BankAccountProxy # 現状はただ委譲しているだけだが、クライアントと本物のオブジェクトの間に立ち入る場所になる
+  def initialize(real_object)
+    @real_object = real_object
+  end
+
+  def balance
+    @real_object.balance
+  end
+  ...
+end
+
+proxy = BancAccountProxy.new(BankAccount.new(100))
+proxy.deposit(50)
+proxy.withdraw(10)
+```
+### 防御Proxy
+- 検証ロジックを分離できる = 関心事の分離ができる
+```ruby
+require 'etc' # 現在のユーザー名を取得するモジュール
+
+class AccountProtectProxy
+  def initialize(real_account, owner_name)
+    @subject = real_account
+    @owner_name = owner_name
+  end
+
+  def deposit(amount)
+    check_access
+    @subject.deposit(amount)
+  end
+
+  private
+
+  def check_access
+    if Etc.getlogin != @owner_name
+      raise "Illegal access: #{Etc.getlogin} cannot access account"
+    end
+  end
+end
+```
+### リモートProxy
+- ネットワークへの関心と、天気情報の取得への関心を切り離せる
+```ruby
+require 'soap/wsdlDriver'
+
+wsdl_url = 'http://www.example.com'
+proxy = SOAP::WSDLDriverFactory.new(wsdl_url).create_rpc_driver
+# Proxyを用いる事で、RPCのネットワークへの関心と、天気情報の取得への関心を切り離せる
+# Proxyを入れ替えれば通信プロトコルのみ入れ替えることも容易
+weather_info = proxy.GetWeatherByZipCode('ZipCode' => '19128')
+```
+### 仮想Proxy
+- 作成コストがかかるオブジェクトの生成を本当に必要になるまで遅延できる
+- インスタンス生成時の問題と、実際の預入や引き出し操作の関心ごとを分離する
+```ruby
+class VirtualAccountProxy
+  def initialize(&creation_block) # starting_balanceを引数に渡すとオブジェクト生成の責務も持ってしまう
+    @creation_block = creation_block
+    # @starting_balance = starting_balance
+  end
+
+  def deposit(amount)
+    subject.deposit(amount)
+  end
+
+  private
+
+  def subject
+    @subject ||= @creation_block.call
+    # @subject ||= BankAccount.new(@starting_balance)
+  end
+end
+```
+## 注意点
+- 委譲するメソッドが多い時の対応
+  - method_missingで一括対応もできるが、全てのオブジェクトが持っているメソッドは捕捉されない
+  - method_missingは継承ツリーを全て辿るので少し遅い
+## まとめ
+- あるオブジェクトが別のオブジェクトの代わりをするパターンの一つ
+- Adapterがインターフェースを変換するのに対し、Proxyは内部のオブジェクトへのアクセスを制御する
