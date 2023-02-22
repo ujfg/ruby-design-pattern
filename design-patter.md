@@ -609,3 +609,189 @@ end
 - テストが難しい時は、シングルトンではない親クラスを作って、テストごとに新たなインスタンスを利用する
 ## まとめ
 - 使い方に注意
+# Factory: 正しいクラスを選び出す
+## 概要
+- 状況に応じて正しいクラスを選択したい
+## コード例
+### Factory Methodパターン
+```ruby
+class Pond
+  def initialize(number_animals, animal_class, number_plats, plant_class)
+    @animal_class = animal_class
+    @plant_class = plant_class
+
+    @animals = []
+    number_animals.times do |i|
+      animals << new_organism(:animal, "動物#{i}")
+    end
+
+    @plants = []
+    number_plants.times do |i|
+      @plants << new_organism(:plant, "植物#{i}")
+    end
+  end
+
+  def simulate_one_day
+    @plants.each { |plant| plant.grow }
+    @animals.each { |animal| animal.speak }
+  end
+
+  def new_organism(type, name) # Factory Method
+    case type
+    when :animal
+      @animal_class.new(name)
+    when :plant
+      @plant_class.new(name)
+    else
+      raise "Unknown organism type: #{type}"
+    end
+  end
+end
+```
+- 問題点
+  - チグハグな組み合わせを作ることができてしまう
+### Abstract Factoryパターン
+- Factoryクラスに個々のクラスを渡す代わりに、「辻褄の合う組み合わせを知っているオブジェクト」を渡す
+  - 「辻褄の合う組み合わせ」という知識をカプセル化する
+  - 以下の例ではモジュールとしてカプセル化する
+```ruby
+class Habitat
+  def initialize(number_animals, number_plants, organism_factory) # organizm_factoryがAbstract Factory
+    @organism_factory = organism_factory
+
+    @animals = []
+    number_animals.times do |i|
+      @animals << @organism_factory.new_animal("動物#{i}")
+    end
+
+    @plants = []
+    number_plants.times do |i|
+      @plants << @organism_factory.new_plant("植物#{i}")
+    end
+  end
+end
+
+module PondOrganismFactory
+  def self.new_animal(name)
+    Frog.new(name)
+  end
+
+  def self.new_plant(name)
+    Algae.new(name)
+  end
+end
+
+module JungleOrganismFactory
+  def self.new_animal(name)
+    Tiger.new(name)
+  end
+
+  def self.new_plant(name)
+    Tree.new(name)
+  end
+end
+
+jungle = Habitat.new(1, 4, JungleOrganismFactory)
+```
+- 「辻褄の合う組み合わせ」を「Abstract Factoryのインスタンス」としてカプセル化することも可能
+```ruby
+class OrganismFactory # Abstract Factory
+  def initialize(plant_class, animal_class)
+    @plant_class = plant_class
+    @animal_class = animal_class
+  end
+
+  def new_animal(name)
+    @animal_class.new(name)
+  end
+
+  def new_plant(name)
+    @plant_class.new(name)
+  end
+end
+
+jungle_organism_factory = OrganismFactory.new(Tree, Tiger)
+jungle = Habitat.new(1, 4, jungle_organism_factory)
+```
+## 注意点
+- 普通に.newすれば良い箇所に使わない
+- YAGNI原則を意識
+## まとめ
+- Factory Method
+  - Template Methodをオブジェクトの生成に応用したパターン
+- Abstract Factory
+  - 矛盾のないオブジェクトの組みを作りたいときに使う
+# Builder: オブジェクトを組み立てやすくする
+## 概要
+- 複雑なオブジェクトを構成するためのパターン
+## コード例
+```ruby
+class Computer
+  attr_accessor :display, :motherboard
+  attr_reader :drives
+
+  def initialize(display = :crt, motherboard = Motherboard.new, drives = [])
+    @motherboard = motherboard
+    @drives = drives
+    @display = display
+  end
+
+class DesktopComputer < Computer
+end
+
+class LaptopComputer < Computer
+end
+
+class ComputerBuilder # ビルダの基底クラス
+  def turbo(has_turbo_cpu = true)
+    @computer.motherboard.cpu = TurboCPU.new
+  end
+
+  def memory_size=(size_in_mb)
+    @computer.motherboard.memory_size = size_in_mb
+  end
+
+  def computer
+    # ここで組み立てたオブジェクトの妥当性をチェックすることも可能
+    raise "No hard disk." unless hard_disk
+
+    @computer
+  end
+end
+
+class DesctopBuilder < ComputerBuilder
+  def initialize
+    @computer = DesktopComputer.new
+  end
+
+  def display=(display)
+    @display = display
+  end
+
+  def add_cd(writer = false)
+    @computer.drives << Drive.new(:cd, 760, writer)
+  end
+
+  def add_dvd(writer = false)
+    @computer.drives << Drive.new(:dvd, 4000, writer)
+  end
+
+  ...
+end
+```
+## 注意点
+- ビルダを再利用したい場合
+```ruby
+builder = LapopBuilder.new
+builder.add_hard_disk(1000)
+
+computer1 = builder.computer
+computer2 = builder.computer
+```
+→ resetメソッドのようなものを実装するか、全ての構成情報をビルだのインスタンス内に格納し、クライアント格納時に初めて実際のオブジェクトを作成する
+
+- 単純なオブジェクトの構成に使うのはやりすぎ
+- オブジェクトを生成するコードが至る所に散らばっていて、間違ったオブジェクトの組み立てをし始めた時が使いどき
+## まとめ
+- オブジェクトを生成する責務の分離
+- 複数のインスタンスを作れるビルダなのか、一度きりなのかを意識
