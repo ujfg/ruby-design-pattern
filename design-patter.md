@@ -516,3 +516,96 @@ end
 ## まとめ
 - あるオブジェクトが別のオブジェクトの代わりをするパターンの一つ
 - Adapterがインターフェースを変換するのに対し、Proxyは内部のオブジェクトへのアクセスを制御する
+# Decorator: オブジェクトを改良する
+## 概要
+- ある責務がときに応じて必要だったり不必要だったりするとき
+- 既存のオブジェクトに簡単に機能を追加するパターン
+- レイヤー状に機能を重ねることも可能
+## コード例
+```ruby
+class SimpleWriter
+  def initialize(path)
+    @file = File.open(path, 'w')
+  end
+
+  def write_line(line)
+    @file.print(line)
+    @file.print("¥n")
+  end
+
+  def pos
+    @file.pos
+  end
+
+  def rewind
+    @file.rewind
+  end
+
+  def close
+    @file.close
+  end
+end
+
+require 'forwardable'
+
+class WriterDecorator # Decoratorの規程クラス。ただ委譲するだけ
+  extend Forwardable
+
+  def_delegators :@real_writer, :write_line, :rewind, :pos, :close
+
+  def initialize(real_writer)
+    @real_writer = real_writer
+  end
+end
+
+class NumberingWriter < WriterDecorator # Decoratorの具象クラス。任意のメソッドに機能を追加する
+  def initialize(real_writer)
+    super(real_writer)
+    @line_number = 1
+  end
+
+  def write_line(line)
+    @real_writer.write_line("#{@line_number}: #{line}")
+    @line_number += 1
+  end
+end
+
+writer = NumberingWriter.new(SimpleWriter.new('final.txt'))
+writer.write_line('Hello out there')
+```
+## 注意点
+- 様々なDecoratorを組み合わせなければいけない場合はBilderパターンとの組み合わせを検討
+- コンポーネントのインターフェースをシンプルに保つべき
+- デコレー他を多数チェインするとパフォーマンスのオーバーヘッドがある
+- rubyでは動的にオープンクラスしてエイリアスをつけてオーバーライドしたり、モジュールに定義してインスタンスにextendしたりできる
+## まとめ
+- 何でもできるオブジェクトを作ったり、機能の組み合わせごとにクラスを作ったりする必要がない
+- 他の「別のオブジェクトの代理オブジェクト」パターンとの違い
+  - Adapter: 不適切なインターフェースのラッパ
+  - Proxy: インターフェースは変えない。セキュリティを強制したり、実際にはネットワーク越しに存在すると言うような事実を隠したりする
+  - Decorator: オブジェクトにレイヤ状に機能を追加できるようにする
+# Singleton: 唯一を保証する
+## 概要
+- 「ただ一つの存在」を表現する
+- ただ一つしか存在しないのであれば、引数などで持ち回す必要はない
+## コード例
+```ruby
+# 以下は require 'singleton' でも実現可能
+class SimpleLogger
+  @@instance = SimpleLogger.new
+
+  def self.instance
+    @@instance
+  end
+
+  private_classMethod :new
+end
+```
+## 注意点
+- グローバル変数として使わない
+  - 全てが密結合する
+- 「どこからでも呼び出せる」はあくまでも付属する結果。「ただ一つの存在」でないものには適用しない
+- 「シングルトンである」という事実を知っているコードの量を減らす
+- テストが難しい時は、シングルトンではない親クラスを作って、テストごとに新たなインスタンスを利用する
+## まとめ
+- 使い方に注意
