@@ -795,3 +795,182 @@ computer2 = builder.computer
 ## まとめ
 - オブジェクトを生成する責務の分離
 - 複数のインスタンスを作れるビルダなのか、一度きりなのかを意識
+# Interpreter: 専用の言語で組み立てる
+## 概要
+- ある用途に専用の新しい言語を作る
+- インタープリタの二段階
+  - パーサがプログラムテキストを読み込み、AST(抽象構文木)をつくる
+    - AST: もとのプログラムと同じ情報を表しながら、オブジェクトのツリーに変換されたもの
+  - ASTを(何らかの外部条件の集まりやコンテキストを背景にして)評価する
+## コード例
+```ruby
+class Expression
+end
+
+class All < Expression # 全てのファイルを返すクラス、ASTの終端(terminal)
+  def evaluate(dir)
+    results = []
+    Find.find(dir) do |p|
+      next unless File.file?(p)
+
+      results << p
+    end
+
+    results
+  end
+end
+
+class FileName < Expression # 名前でファイルを検索するクラス、ASTの終端(terminal)
+  def initialize(pattern)
+    @pattern = pattern
+  end
+
+  def evaluate(dir)
+    results = []
+    Find.find(dir) do |p|
+      next unless File.file?(p)
+
+      name = File.basename(p)
+      results << p if File.fnmatch(@pattern, name)
+    end
+  end
+end
+
+class Not < Expression # ASTの非終端(nonterminal)、他のterminalの親となるノード
+  def initialize(expression)
+    @expression = expression
+  end
+
+  def evaluate(dir)
+    All.new.evaluate(dir) - @expression.evaluate(dir)
+  end
+end
+
+not_mp3_expr = Not.new(FileName.new('*.mp3'))
+not_mp3s = not_mp3_expr.evaluate('test_dir')
+```
+### ASTを作る方法
+- パーサを書く(書き手にrubyを意識させない)
+```ruby
+class Parser
+  def initialize(text)
+    @tokens = text.scan(/\(|\)|[\w\.\*]+/)
+  end
+
+  def next_token
+    @tokens.shift
+  end
+
+  def expression
+    token = next_token
+
+    if token = nil
+      nil
+    elsif token == '('
+      result = expression
+      raise 'Expected )' unless next_token == ')'
+      result
+    # tokenの場合分けのif文が続く...
+  end
+end
+
+parser = Parser.new "and (and(bigger 1024)(filename *.mp3)) writable"
+ast = parser.expression
+```
+- シンタックスシュガーで対応
+```ruby
+class Expression
+  def |(other)
+    Or.new(self, other)
+  end
+
+  def &(other)
+    And.new(self, other)
+  end
+end
+
+(Bigger.new(2000) & Not.new(Writable.new)) | FileName.new("*.mp3")
+```
+## 注意点
+- シンプルにする
+- エラーメッセージに考慮
+## まとめ
+- ASTの生成、評価をどのように行うかが鍵
+# DSL: ドメイン特化言語
+## 概要
+- 外部DSL
+  - DSL用のパーサとインタープリタがあり、それとは別物のDSLがある
+- 内部DSL
+  - Rubyなどの何らかの実装言語をユーザーにとってのDSLになるよう仕立てたもの
+## コード例
+```ruby
+class Backup
+  attr_accessor :backup_directory, :interval
+  attr_reader :data_sources
+
+  def initialize
+    @data_sources = []
+    @backup_directory = '/backup'
+    @interval = 60
+    yield if block_given?
+    PackRat.instance.register_backup(self)
+  end
+
+  def backup(dir, find_expression = All.new)
+    @data_sources << DataSource.new(dir, find_expression)>>
+  end
+
+  def to(backup_directory)
+    @backup_directory = backuo_directory
+  end
+
+  def interval(minutes)
+    @interval = minutes
+  end
+
+  def run
+    while true
+      this_backup_dir = Time.new.ctime.tr(" :", "_")
+      this_backup_path = File.join(backup_directory, this_backup_dir)
+      @data_sources.each { |source| source.backup(this_backup_path) }
+      sleep @interval * 60
+    end
+  end
+end
+
+class PackRat
+  include Singleton
+
+  def initialize
+    @backups = []
+  end
+
+  def register_backup(backup)
+    @backups << backup
+  end
+
+  def run
+    threads = []
+    @backups.each do |backup|
+      threads << Thread.new { backup.run }
+    end
+    threads.each { |t| t.join }
+  end
+end
+
+eval(File.read('backup.pr'))
+PackRat.instance.run
+```
+```ruby
+Backup.new do |b|
+  b.backup '/home/russ/oldies', file_name('*.mp3') | file_name('*.wav')
+  b.to '/tmp/backup'
+  b.interval 60
+end
+```
+## 注意点
+- Rubyベースで書く内部DSLでパース可能な構文はRubyの構文でパースできるものに制限される
+- エラーメッセージはRubyがわからない人には読み解けない
+## まとめ
+- Rubyの構文ルールに合うようにDSLを自分で定義する
+- DSLでかかれた、やるべきことが記述されているプログラムに必要な基盤も自分で定義する
